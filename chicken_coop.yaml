@@ -27,7 +27,11 @@ wifi:
     password: "b50vk0IdPWgS"
 
 captive_portal:
-    
+
+time:
+  - platform: homeassistant
+    id: homeassistant_time
+
 light:
   - platform: rgb
     id: status_light
@@ -104,9 +108,8 @@ sensor:
                   - sensor.in_range:
                       id: i_lux
                       below: 0.1
-                  - sensor.in_range:
-                      id: lux_rate_of_change
-                      below: 0
+                  - lambda: |-
+                      return id(door_last_changed_at).state < (id(homeassistant_time).now().timestamp - 3600);
                   - lambda: |-
                       return id(coop_door).position == COVER_OPEN;
               then:
@@ -118,26 +121,12 @@ sensor:
                   - sensor.in_range:
                       id: i_lux
                       above: 0.1
-                  - sensor.in_range:
-                      id: lux_rate_of_change
-                      above: 0
+                  - lambda: |-
+                      return id(door_last_changed_at).state < (id(homeassistant_time).now().timestamp - 3600);
                   - lambda: |-
                       return id(coop_door).position == COVER_CLOSED;
               then:
                 cover.open: coop_door
-
-  - platform: template
-    name: Lux rate of change
-    id: lux_rate_of_change
-    update_interval: 5minutes
-    accuracy_decimals: 4
-    unit_of_measurement: Lux / 5 Minutes
-    lambda: |-
-      static float prev_value = id(i_lux).state;
-      float current_value = id(i_lux).state;
-      float change = current_value - prev_value;
-      prev_value = current_value;
-      return change;
 
   - platform: adc
     pin: A0
@@ -154,6 +143,13 @@ sensor:
           window_size: 20
           send_every: 1
           send_first_at: 1
+
+  - platform: template
+    id: door_last_changed_at
+    accuracy_decimals: 0
+    unit_of_measurement: Seconds
+    name: "Door last changed at"
+    internal: true
 
 binary_sensor:
   - platform: gpio
@@ -253,4 +249,12 @@ cover:
       - switch.turn_off: extend_cover
       - switch.turn_off: retract_cover
     max_duration: 25s
-    
+    on_open:
+      - sensor.template.publish:
+          id: door_last_changed_at
+          state: !lambda 'return id(homeassistant_time).now().timestamp;'
+    on_closed:
+      - sensor.template.publish:
+          id: door_last_changed_at
+          state: !lambda 'return id(homeassistant_time).now().timestamp;'
+
