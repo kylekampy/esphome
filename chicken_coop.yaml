@@ -113,7 +113,10 @@ sensor:
                   - lambda: |-
                       return id(coop_door).position == COVER_OPEN;
               then:
-                cover.close: coop_door
+                - cover.close: coop_door
+                - sensor.template.publish:
+                    id: door_last_changed_at
+                    state: !lambda 'return id(homeassistant_time).now().timestamp;'
           - if:
               condition:
                 and:
@@ -126,7 +129,11 @@ sensor:
                   - lambda: |-
                       return id(coop_door).position == COVER_CLOSED;
               then:
-                cover.open: coop_door
+                - cover.open: coop_door
+                - sensor.template.publish:
+                    id: door_last_changed_at
+                    state: !lambda 'return id(homeassistant_time).now().timestamp;'
+
 
   - platform: adc
     pin: A0
@@ -249,12 +256,4 @@ cover:
       - switch.turn_off: extend_cover
       - switch.turn_off: retract_cover
     max_duration: 25s
-    on_open:
-      - sensor.template.publish:
-          id: door_last_changed_at
-          state: !lambda 'return id(homeassistant_time).now().timestamp;'
-    on_closed:
-      - sensor.template.publish:
-          id: door_last_changed_at
-          state: !lambda 'return id(homeassistant_time).now().timestamp;'
 
