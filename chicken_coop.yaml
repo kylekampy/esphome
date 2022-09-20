@@ -1,0 +1,256 @@
+esphome:
+  name: chicken-coop
+
+esp32:
+  board: esp32dev
+  framework:
+    type: arduino
+
+# Enable logging
+logger:
+
+# Enable Home Assistant API
+api:
+  encryption:
+    key: "meCWd4JqIeJxDHi9zbL4QF3UHyksvuNFHzN5y2OyAq0="
+
+ota:
+  password: "ce2db7c2cf580c5fcd2e4109727cf2f6"
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+
+  # Enable fallback hotspot (captive portal) in case wifi connection fails
+  ap:
+    ssid: "Chicken-Coop Fallback Hotspot"
+    password: "b50vk0IdPWgS"
+
+captive_portal:
+    
+light:
+  - platform: rgb
+    id: status_light
+    name: "Status Light"
+    red: status_light_red
+    green: status_light_green
+    blue: status_light_blue
+    effects:
+      - pulse:
+          name: "Pulse"
+          transition_length: 0.25s
+          update_interval: 0.25s
+
+switch:
+  - platform: gpio
+    pin: GPIO33
+    id: extend_cover
+    name: "Extend Cover"
+    interlock: retract_cover
+    internal: true
+  - platform: gpio
+    pin: GPIO32
+    id: retract_cover
+    name: "Retract Cover"
+    interlock: extend_cover
+    internal: true
+
+output:
+  - id: status_light_red
+    platform: ledc
+    pin: GPIO19
+    inverted: true
+  - id: status_light_green
+    platform: ledc
+    pin: GPIO18
+    inverted: true
+  - id: status_light_blue
+    platform: ledc
+    pin: GPIO5
+    inverted: true
+
+i2c:
+
+sensor:
+  - platform: wifi_signal
+    name: "WiFi Signal Sensor"
+    update_interval: 60s
+
+  - platform: uptime
+    name: Uptime Sensor
+
+  - platform: tsl2591
+    name: "Light Sensor"
+    id: "my_tls2591"
+    address: 0x29
+    update_interval: 5s
+    device_factor: 53
+    integration_time: 600ms
+    visible:
+      name: "Visible light"
+    infrared:
+      name: "Infrared light"
+    full_spectrum:
+      name: "Full spectrum light"
+    calculated_lux:
+      id: i_lux
+      name: "Lux"
+      on_value:
+        then:
+          - if:
+              condition:
+                and:
+                  # Close door conditions
+                  - sensor.in_range:
+                      id: i_lux
+                      below: 0.1
+                  - sensor.in_range:
+                      id: lux_rate_of_change
+                      below: 0
+                  - lambda: |-
+                      return id(coop_door).position == COVER_OPEN;
+              then:
+                cover.close: coop_door
+          - if:
+              condition:
+                and:
+                  # Open door conditions
+                  - sensor.in_range:
+                      id: i_lux
+                      above: 0.1
+                  - sensor.in_range:
+                      id: lux_rate_of_change
+                      above: 0
+                  - lambda: |-
+                      return id(coop_door).position == COVER_CLOSED;
+              then:
+                cover.open: coop_door
+
+  - platform: template
+    name: Lux rate of change
+    id: lux_rate_of_change
+    update_interval: 5minutes
+    accuracy_decimals: 4
+    unit_of_measurement: Lux / 5 Minutes
+    lambda: |-
+      static float prev_value = id(i_lux).state;
+      float current_value = id(i_lux).state;
+      float change = current_value - prev_value;
+      prev_value = current_value;
+      return change;
+
+  - platform: adc
+    pin: A0
+    name: "Temperature Sensor"
+    id: temp_sensor
+    device_class: temperature
+    unit_of_measurement: °F
+    accuracy_decimals: 1
+    update_interval: 3s
+    filters:
+      - lambda: |-
+          return ((((x * 1000.0) - 500.0) / 10.0) * 1.8) + 32;
+      - sliding_window_moving_average:
+          window_size: 20
+          send_every: 1
+          send_first_at: 1
+
+binary_sensor:
+  - platform: gpio
+    id: door_toggle_button
+    pin:
+      number: GPIO14
+      mode:
+        input: true
+        pullup: true
+      inverted: true
+    name: "Door Toggle"
+    on_press:
+      then:
+        cover.toggle: coop_door
+
+  - platform: gpio
+    pin:
+      number: GPIO27
+      mode:
+        input: true
+        pullup: true
+      inverted: false
+    name: "Door Closed"
+    id: reed_door_closed
+    on_release:
+      then:
+        - if:
+            condition:
+              - binary_sensor.is_off: reed_door_open
+            then:
+              - light.turn_on:
+                  id: status_light
+                  brightness: 100%
+                  red: 90%
+                  green: 100%
+                  blue: 10%
+                  effect: "Pulse"
+    on_press:
+      then:
+        - switch.turn_off: extend_cover
+        - switch.turn_off: retract_cover
+        - light.turn_on:
+            id: status_light
+            brightness: 100%
+            red: 0%
+            green: 100%
+            blue: 0%
+            effect: "None"
+
+  - platform: gpio
+    pin:
+      number: GPIO26
+      mode:
+        input: true
+        pullup: true
+      inverted: true
+    name: "Door Open"
+    id: reed_door_open
+    on_release:
+      then:
+        - if:
+            condition:
+              - binary_sensor.is_off: reed_door_open
+            then:
+              - light.turn_on:
+                  id: status_light
+                  brightness: 100%
+                  red: 90%
+                  green: 100%
+                  blue: 10%
+                  effect: "Pulse"
+    on_press:
+      then:
+        - switch.turn_off: extend_cover
+        - switch.turn_off: retract_cover
+        - light.turn_on:
+            id: status_light
+            brightness: 100%
+            red: 100%
+            green: 0%
+            blue: 0%
+            effect: "None"
+
+cover:
+  - platform: endstop
+    name: "Coop Door"
+    id: coop_door
+    open_action:
+      - switch.turn_on: retract_cover
+    open_duration: 20s
+    open_endstop: reed_door_open
+    close_action:
+      - switch.turn_on: extend_cover
+    close_duration: 20s
+    close_endstop: reed_door_closed
+    stop_action:
+      - switch.turn_off: extend_cover
+      - switch.turn_off: retract_cover
+    max_duration: 25s
+    
