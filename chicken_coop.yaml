@@ -1,5 +1,10 @@
 esphome:
   name: chicken-coop
+  on_boot:
+    # set the default state of last_changed_at to be 1 hour ago
+    - sensor.template.publish:
+        id: door_last_changed_at
+        state: !lambda 'return id(homeassistant_time).now().timestamp - 3600;'
 
 esp32:
   board: esp32dev
@@ -156,7 +161,6 @@ sensor:
     accuracy_decimals: 0
     unit_of_measurement: Seconds
     name: "Door last changed at"
-    internal: true
 
 binary_sensor:
   - platform: gpio
@@ -256,4 +260,3 @@ cover:
       - switch.turn_off: extend_cover
       - switch.turn_off: retract_cover
     max_duration: 25s
-
